@@ -6,6 +6,7 @@
 test_run.R
 run_all.R
 *.Rproj
+*.Rdata
 
 
 # Claude Code
