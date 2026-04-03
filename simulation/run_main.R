@@ -148,7 +148,7 @@ run_one_seed_prepare <- function(seed, impt_list = NULL) {
   for (m in names(sim_list)) {
     sim_dat <- sim_list[[m]]
 
-    # Raw sim (for run_mixAK.R compatibility)
+    # Raw sim (saved for reference / debugging)
     write_csv(sim_dat,
               file.path(DIR_SIM,
                         sprintf("sim_seed%03d_%s.csv", seed, .safe(m))))
