@@ -3,7 +3,7 @@
 .Rhistory
 .Rproj.user/
 *.Rout
-test_run.R
+test_*.R
 run_all.R
 *.Rproj
 *.Rdata
