@@ -1,0 +1,16 @@
+# R
+.RData
+.Rhistory
+.Rproj.user/
+*.Rout
+test_run.R
+run_all.R
+
+# Claude Code
+.claude/
+
+# macOS
+.DS_Store
+
+# Output (generated, don't commit)
+# output/
