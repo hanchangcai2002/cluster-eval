@@ -152,6 +152,9 @@ prepare_sce3 <- function(dat, config, feature_vars, n_pc = 10, time_map = NULL) 
   }
 
   # Step 3: PCA (center + scale the flattened matrix columns)
+  # Remove zero-variance columns before PCA to avoid rescaling errors
+  col_vars   <- apply(pca_mat, 2, var, na.rm = TRUE)
+  pca_mat    <- pca_mat[, col_vars > 0, drop = FALSE]
   pca_result  <- prcomp(pca_mat, center = TRUE, scale. = TRUE)
   n_pc_actual <- min(n_pc, ncol(pca_result$x))
   pc_names    <- paste0("PC", seq_len(n_pc_actual))
