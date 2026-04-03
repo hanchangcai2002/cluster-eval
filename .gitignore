@@ -6,6 +6,7 @@
 test_run.R
 run_all.R
 *.Rproj
+*.Rdata
 
 
 # Claude Code
@@ -16,3 +17,7 @@ run_all.R
 
 # Output (generated, don't commit)
 # output/
+install_packages.R
+*.sh
+simulation/.gitignore
+simulation/output/logs/
