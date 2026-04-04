@@ -448,17 +448,34 @@ run_all_clustering <- function(dat, config, feature_vars,
                           c(list(dat, config, feature_vars, k_range),
                             dots[intersect(names(dots), "nb_redrawing")])),
       "flexmix" = cluster_flexmix(dat, config, feature_vars, k_range),
-      "LCMM"    = do.call(cluster_lcmm,
-                          c(list(dat, config, feature_vars, k_range),
-                            dots[intersect(names(dots), "maxiter")])),
+      "LCMM"    = {
+        # LCMM can hang on high-dimensional data; guard with a wall-clock timeout
+        lcmm_timeout <- dots[["lcmm_timeout"]]
+        if (is.null(lcmm_timeout) || !is.finite(lcmm_timeout)) lcmm_timeout <- Inf
+        tryCatch({
+          if (is.finite(lcmm_timeout))
+            setTimeLimit(elapsed = lcmm_timeout, transient = FALSE)
+          res <- do.call(cluster_lcmm,
+                         c(list(dat, config, feature_vars, k_range),
+                           dots[intersect(names(dots), "maxiter")]))
+          setTimeLimit(elapsed = Inf)
+          res
+        }, error = function(e) {
+          setTimeLimit(elapsed = Inf)
+          cat(sprintf("  LCMM failed or exceeded %gs limit: %s\n",
+                      lcmm_timeout, conditionMessage(e)))
+          NULL
+        })
+      },
       "mixAK"   = do.call(cluster_mixak,
                           c(list(dat, config, feature_vars, k_range),
                             dots[intersect(names(dots), "nMCMC")]))
     )
   }
 
-  # Build flat metrics table
+  # Build flat metrics table (NULL results from failed methods are skipped)
   metrics_rows <- lapply(names(results), function(m) {
+    if (is.null(results[[m]])) return(list())
     lapply(names(results[[m]]), function(kk) {
       cbind(method = m, results[[m]][[kk]]$metrics)
     })

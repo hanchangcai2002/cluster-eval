@@ -80,7 +80,8 @@ CLUSTER_METHODS <- c("GBMT", "KML3D", "flexmix", "LCMM")
 CLUSTER_METHODS_MIXAK <- c("mixAK")
 
 CLUSTER_ARGS    <- list(d = 2, nstart = 3, nb_redrawing = 5, maxiter = 200,
-                        nMCMC = c(burn = 400, keep = 800, thin = 3, info = 100))
+                        nMCMC = c(burn = 400, keep = 800, thin = 3, info = 100),
+                        lcmm_timeout = 7200L)   # max elapsed seconds for entire LCMM fit
 
 
 # =============================================================================
@@ -181,58 +182,99 @@ run_one_seed_cluster <- function(seed) {
 
   sim_methods <- .load_sim_methods(seed)
   meta_vars   <- .meta_vars()
-  all_metrics <- list()
+
+  out_dir <- file.path(DIR_BASE, "cluster")
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  # Helper: partial-file paths per (seed, sim_method, scenario)
+  .partial_path <- function(m, sce)
+    file.path(out_dir, sprintf("cluster_seed%03d_%s_%s.csv", seed, .safe(m), sce))
 
   for (m in sim_methods) {
     cat(sprintf("\n  Sim method: %s\n", m))
 
-    sce2_dat <- read_csv(.sce2_path(seed, m), show_col_types = FALSE)
-    sce3_dat <- read_csv(.sce3_path(seed, m), show_col_types = FALSE)
-    pc_names <- setdiff(names(sce3_dat), meta_vars)
+    # --- SCE2 ---
+    sce2_f <- .partial_path(m, "sce2")
+    if (file.exists(sce2_f)) {
+      cat(sprintf("  [skip] SCE2 already saved: %s\n", basename(sce2_f)))
+    } else {
+      sce2_dat <- read_csv(.sce2_path(seed, m), show_col_types = FALSE)
+      cl2 <- run_all_clustering(
+        dat          = sce2_dat,
+        config       = CFG,
+        feature_vars = FEAT_SCE2,
+        methods      = CLUSTER_METHODS,
+        k_range      = K_RANGE,
+        d            = CLUSTER_ARGS$d,
+        nstart       = CLUSTER_ARGS$nstart,
+        nb_redrawing = CLUSTER_ARGS$nb_redrawing,
+        maxiter      = CLUSTER_ARGS$maxiter,
+        nMCMC        = CLUSTER_ARGS$nMCMC,
+        lcmm_timeout = CLUSTER_ARGS$lcmm_timeout
+      )
+      sce2_metrics <- cl2$metrics %>%
+        rename(cluster_method = method) %>%
+        mutate(scenario = "SCE2", sim_method = m)
+      write_csv(sce2_metrics, sce2_f)
+      cat(sprintf("  Saved SCE2 partial: %s\n", basename(sce2_f)))
+    }
 
-    cl2 <- run_all_clustering(
-      dat          = sce2_dat,
-      config       = CFG,
-      feature_vars = FEAT_SCE2,
-      methods      = CLUSTER_METHODS,
-      k_range      = K_RANGE,
-      d            = CLUSTER_ARGS$d,
-      nstart       = CLUSTER_ARGS$nstart,
-      nb_redrawing = CLUSTER_ARGS$nb_redrawing,
-      maxiter      = CLUSTER_ARGS$maxiter,
-      nMCMC        = CLUSTER_ARGS$nMCMC
-    )
-    sce2_metrics <- cl2$metrics %>%
-      rename(cluster_method = method) %>%
-      mutate(scenario = "SCE2", sim_method = m)
-
-    cl3 <- run_all_clustering(
-      dat          = sce3_dat,
-      config       = CFG,
-      feature_vars = pc_names,
-      methods      = CLUSTER_METHODS,
-      k_range      = K_RANGE,
-      d            = CLUSTER_ARGS$d,
-      nstart       = CLUSTER_ARGS$nstart,
-      nb_redrawing = CLUSTER_ARGS$nb_redrawing,
-      maxiter      = CLUSTER_ARGS$maxiter,
-      nMCMC        = CLUSTER_ARGS$nMCMC
-    )
-    sce3_metrics <- cl3$metrics %>%
-      rename(cluster_method = method) %>%
-      mutate(scenario = "SCE3", sim_method = m)
-
-    all_metrics[[m]] <- rbind(sce2_metrics, sce3_metrics)
+    # --- SCE3 (wrapped: LCMM can fail/hang; save whatever completes) ---
+    sce3_f <- .partial_path(m, "sce3")
+    if (file.exists(sce3_f)) {
+      cat(sprintf("  [skip] SCE3 already saved: %s\n", basename(sce3_f)))
+    } else {
+      tryCatch({
+        sce3_dat <- read_csv(.sce3_path(seed, m), show_col_types = FALSE)
+        pc_names <- setdiff(names(sce3_dat), meta_vars)
+        cl3 <- run_all_clustering(
+          dat          = sce3_dat,
+          config       = CFG,
+          feature_vars = pc_names,
+          methods      = CLUSTER_METHODS,
+          k_range      = K_RANGE,
+          d            = CLUSTER_ARGS$d,
+          nstart       = CLUSTER_ARGS$nstart,
+          nb_redrawing = CLUSTER_ARGS$nb_redrawing,
+          maxiter      = CLUSTER_ARGS$maxiter,
+          nMCMC        = CLUSTER_ARGS$nMCMC,
+          lcmm_timeout = CLUSTER_ARGS$lcmm_timeout
+        )
+        sce3_metrics <- cl3$metrics %>%
+          rename(cluster_method = method) %>%
+          mutate(scenario = "SCE3", sim_method = m)
+        write_csv(sce3_metrics, sce3_f)
+        cat(sprintf("  Saved SCE3 partial: %s\n", basename(sce3_f)))
+      }, error = function(e) {
+        cat(sprintf("  WARNING: SCE3 failed for sim method '%s': %s\n",
+                    m, conditionMessage(e)))
+      })
+    }
   }
 
-  metrics_df <- do.call(rbind, all_metrics)
-  rownames(metrics_df) <- NULL
+  # Combine all available partial results into the final seed file
+  partial_list <- list()
+  for (m in sim_methods) {
+    for (sce in c("sce2", "sce3")) {
+      f <- .partial_path(m, sce)
+      if (file.exists(f))
+        partial_list[[paste0(m, "_", sce)]] <-
+          read_csv(f, show_col_types = FALSE)
+    }
+  }
 
-  out_dir <- file.path(DIR_BASE, "cluster")
-  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  if (length(partial_list) == 0) {
+    warning("No partial results available for seed ", seed,
+            " — nothing written.")
+    return(invisible(NULL))
+  }
+
+  metrics_df <- do.call(rbind, partial_list)
+  rownames(metrics_df) <- NULL
   write_csv(metrics_df,
             file.path(out_dir, sprintf("cluster_seed%03d.csv", seed)))
-  cat(sprintf("  Saved: cluster_seed%03d.csv\n", seed))
+  cat(sprintf("  Saved: cluster_seed%03d.csv  (%d rows from %d partial file(s))\n",
+              seed, nrow(metrics_df), length(partial_list)))
 
   invisible(metrics_df)
 }
