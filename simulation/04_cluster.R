@@ -341,7 +341,7 @@ cluster_lcmm <- function(dat, config, feature_vars, k_range = 2:5,
 #' @param nMCMC  Named integer vector c(burn, keep, thin, info)
 cluster_mixak <- function(dat, config, feature_vars, k_range = 2:5,
                            nMCMC = c(burn = 400, keep = 800,
-                                     thin = 3, info = 100)) {
+                                     thin = 2, info = 100)) {
   dat  <- as.data.frame(dat)
   sv   <- config$subject_var
   gv   <- config$group_var
