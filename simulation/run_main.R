@@ -290,11 +290,16 @@ run_one_seed_mixak <- function(seed) {
   sim_methods <- .load_sim_methods(seed)
   meta_vars   <- .meta_vars()
 
-  out_dir <- file.path(DIR_BASE, "cluster")
-  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  out_dir   <- file.path(DIR_BASE, "cluster")
+  trace_dir <- file.path(out_dir, "traceplots")
+  dir.create(out_dir,   recursive = TRUE, showWarnings = FALSE)
+  dir.create(trace_dir, recursive = TRUE, showWarnings = FALSE)
 
   .mixak_partial <- function(m, sce)
     file.path(out_dir, sprintf("mixak_seed%03d_%s_%s.csv", seed, .safe(m), sce))
+
+  .trace_prefix <- function(m, sce)
+    file.path(trace_dir, sprintf("mixak_trace_seed%03d_%s_%s", seed, .safe(m), sce))
 
   MIXAK_SCE3_TIMEOUT <- 4L * 3600L   # 4 hours per sim_method SCE3 section
 
@@ -316,7 +321,9 @@ run_one_seed_mixak <- function(seed) {
         d            = CLUSTER_ARGS$d,
         nstart       = CLUSTER_ARGS$nstart,
         nb_redrawing = CLUSTER_ARGS$nb_redrawing,
-        maxiter      = CLUSTER_ARGS$maxiter
+        maxiter      = CLUSTER_ARGS$maxiter,
+        trace_prefix = .trace_prefix(m, "sce2"),
+        scenario     = "SCE2"
       )
       sce2_metrics <- cl2$metrics %>%
         rename(cluster_method = method) %>%
@@ -343,7 +350,9 @@ run_one_seed_mixak <- function(seed) {
           d            = CLUSTER_ARGS$d,
           nstart       = CLUSTER_ARGS$nstart,
           nb_redrawing = CLUSTER_ARGS$nb_redrawing,
-          maxiter      = CLUSTER_ARGS$maxiter
+          maxiter      = CLUSTER_ARGS$maxiter,
+          trace_prefix = .trace_prefix(m, "sce3"),
+          scenario     = "SCE3"
         )
         setTimeLimit(elapsed = Inf)
         sce3_metrics <- cl3$metrics %>%

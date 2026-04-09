@@ -327,6 +327,70 @@ cluster_lcmm <- function(dat, config, feature_vars, k_range = 2:5,
 # mixAK — Bayesian Mixture Model (MCMC via GLMM_MCMC)
 # =============================================================================
 
+#' Save MCMC trace plots for one GLMM_MCMC chain to an open graphics device
+#'
+#' Plots (each on its own page): Deviance, Cond.Deviance, mixture weights w[j],
+#' and component means mu[comp, feature].  Call inside pdf() ... dev.off().
+#'
+#' @param fit          One MCMC chain (e.g. fit[[1]] from GLMM_MCMC)
+#' @param k            Number of mixture components
+#' @param nMCMC        Named vector with at least a "keep" element
+#' @param scenario     Label shown in plot titles (e.g. "SCE2")
+#' @param feature_vars Character vector of feature names
+plot_traces <- function(fit, k, nMCMC, scenario, feature_vars) {
+  keep <- nMCMC["keep"]
+  iter <- seq_len(keep)
+
+  # ---- 1. Deviance ---------------------------------------------------------
+  if (!is.null(fit$Deviance)) {
+    dev <- fit$Deviance
+    plot(iter, dev, type = "l", col = "steelblue",
+         main = sprintf("%s | k=%d | Deviance", scenario, k),
+         xlab = "Iteration (post-burn)", ylab = "Deviance", lwd = 0.8)
+    abline(h = mean(dev), col = "red", lty = 2)
+  }
+
+  # ---- 1b. Conditional Deviance --------------------------------------------
+  if (!is.null(fit$Cond.Deviance)) {
+    cd <- fit$Cond.Deviance
+    plot(iter, cd, type = "l", col = "steelblue",
+         main = sprintf("%s | k=%d | Cond.Deviance", scenario, k),
+         xlab = "Iteration (post-burn)", ylab = "Cond.Deviance", lwd = 0.8)
+    abline(h = mean(cd), col = "red", lty = 2)
+  }
+
+  # ---- 2. Mixture weights (w_b) --------------------------------------------
+  if (!is.null(fit$w_b)) {
+    w_mat <- fit$w_b           # keep × k matrix
+    for (j in seq_len(ncol(w_mat))) {
+      plot(iter, w_mat[, j], type = "l",
+           col = j + 1,
+           main = sprintf("%s | k=%d | w[%d]", scenario, k, j),
+           xlab = "Iteration (post-burn)", ylab = "Weight", ylim = c(0, 1), lwd = 0.8)
+      abline(h = mean(w_mat[, j]), col = "red", lty = 2)
+    }
+  }
+
+  # ---- 3. Component means (mu_b) -------------------------------------------
+  if (!is.null(fit$mu_b)) {
+    mu_mat <- fit$mu_b         # keep × (k * n_vars) matrix
+    n_vars <- length(feature_vars)
+    for (j in seq_len(k)) {
+      for (v in seq_len(n_vars)) {
+        col_idx <- (j - 1) * n_vars + v
+        if (col_idx > ncol(mu_mat)) break
+        plot(iter, mu_mat[, col_idx], type = "l",
+             col = j + 1,
+             main = sprintf("%s | k=%d | mu[comp%d, %s]",
+                            scenario, k, j, feature_vars[v]),
+             xlab = "Iteration (post-burn)", ylab = "Mean", lwd = 0.8)
+        abline(h = mean(mu_mat[, col_idx]), col = "red", lty = 2)
+      }
+    }
+  }
+}
+
+
 #' Fit mixAK / GLMM_MCMC for k in k_range and return metrics
 #'
 #' Model structure (as in the paper):
@@ -338,10 +402,15 @@ cluster_lcmm <- function(dat, config, feature_vars, k_range = 2:5,
 #' Two MCMC chains are run automatically by GLMM_MCMC; posterior component
 #' probabilities are averaged across chains for more stable assignments.
 #'
-#' @param nMCMC  Named integer vector c(burn, keep, thin, info)
+#' @param nMCMC        Named integer vector c(burn, keep, thin, info)
+#' @param trace_prefix If non-NULL, save one PDF per k to
+#'                     "{trace_prefix}_k{k}.pdf" using chain 1 traces
+#' @param scenario     Label passed to plot_traces() (e.g. "SCE2")
 cluster_mixak <- function(dat, config, feature_vars, k_range = 2:5,
                            nMCMC = c(burn = 400, keep = 800,
-                                     thin = 2, info = 100)) {
+                                     thin = 2, info = 100),
+                           trace_prefix = NULL,
+                           scenario = "") {
   dat  <- as.data.frame(dat)
   sv   <- config$subject_var
   gv   <- config$group_var
@@ -382,6 +451,15 @@ cluster_mixak <- function(dat, config, feature_vars, k_range = 2:5,
       PED             = TRUE
     )
     runtime <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+
+    # Save trace plots for chain 1
+    if (!is.null(trace_prefix)) {
+      pdf_path <- sprintf("%s_k%d.pdf", trace_prefix, k)
+      pdf(pdf_path)
+      plot_traces(fit[[1]], k = k, nMCMC = nMCMC,
+                  scenario = scenario, feature_vars = feature_vars)
+      dev.off()
+    }
 
     # Average posterior component probabilities across the two MCMC chains
     # (chain 1 = fit[[1]], chain 2 = fit[[2]]; averaging gives more stable estimates)
@@ -469,7 +547,8 @@ run_all_clustering <- function(dat, config, feature_vars,
       },
       "mixAK"   = do.call(cluster_mixak,
                           c(list(dat, config, feature_vars, k_range),
-                            dots[intersect(names(dots), "nMCMC")]))
+                            dots[intersect(names(dots),
+                                           c("nMCMC", "trace_prefix", "scenario"))]))
     )
   }
 
